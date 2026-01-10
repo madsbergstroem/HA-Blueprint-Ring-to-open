@@ -1,0 +1,184 @@
+blueprint:
+  name: "Ring Intercom: Ring-to-Open (Nuki-like, helper-based)"
+  description: >
+    Nuki-like behaviour for a Ring Intercom:
+    1) Ring-to-Open is enabled via a helper (input_boolean).
+    2) When Ring-to-Open is ON and the Ding (gong/doorbell) is pressed while the authorised person is home,
+       the Intercom lock is unlocked.
+    3) Ring-to-Open is automatically disabled again after a configurable time.
+    4) Optionally, a special trigger (e.g. phone battery low while not at home) can enable Ring-to-Open.
+
+  domain: automation
+  source_url: "https://github.com/<YOUR_GITHUB_USER>/<YOUR_REPO>/blob/main/automation/ring_intercom/ring_to_open.yaml"
+
+  input:
+    ding_sensor:
+      name: Ding (binary_sensor)
+      selector:
+        entity:
+          domain: binary_sensor
+
+    intercom_lock:
+      name: Intercom (lock)
+      selector:
+        entity:
+          domain: lock
+
+    authorised_person:
+      name: Authorised Person (person)
+      selector:
+        entity:
+          domain: person
+
+    ring_to_open_active:
+      name: Ring-to-Open Active (input_boolean)
+      description: Helper that represents whether Ring-to-Open is currently active.
+      selector:
+        entity:
+          domain: input_boolean
+
+    active_minutes:
+      name: Active time (minutes)
+      description: How long Ring-to-Open stays active after it is enabled.
+      default: 15
+      selector:
+        number:
+          min: 1
+          max: 180
+          step: 1
+          mode: slider
+          unit_of_measurement: min
+
+    ding_cooldown_seconds:
+      name: Ding cooldown (seconds)
+      description: Debounce for the Ding trigger to reduce duplicate unlocks.
+      default: 2
+      selector:
+        number:
+          min: 0
+          max: 30
+          step: 1
+          mode: slider
+          unit_of_measurement: s
+
+    enable_special_trigger:
+      name: Enable special trigger
+      default: false
+      selector:
+        boolean: {}
+
+    phone_battery_sensor:
+      name: Phone battery sensor (optional)
+      description: Numeric sensor (0–100). Example: sensor.michel_phone_battery_level
+      default: ""
+      selector:
+        entity:
+          domain: sensor
+
+    battery_threshold:
+      name: Battery threshold (%)
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 50
+          step: 1
+          mode: slider
+          unit_of_measurement: "%"
+
+mode: restart
+
+variables:
+  batt_entity: !input phone_battery_sensor
+  batt_threshold: !input battery_threshold
+  special_enabled: !input enable_special_trigger
+  cooldown_seconds: !input ding_cooldown_seconds
+  batt_configured: "{{ batt_entity is string and batt_entity | length > 0 }}"
+
+trigger:
+  - id: ding_pressed
+    platform: state
+    entity_id: !input ding_sensor
+    to: "on"
+
+  - id: person_arrived
+    platform: state
+    entity_id: !input authorised_person
+    to: "home"
+
+  - id: battery_low
+    platform: template
+    value_template: >
+      {{
+        special_enabled
+        and batt_configured
+        and states(batt_entity) not in ['unknown', 'unavailable', 'none']
+        and (states(batt_entity) | float(101)) < (batt_threshold | float)
+      }}
+
+condition: []
+
+action:
+  - choose:
+
+      # Auto-enable Ring-to-Open on arrival for N minutes
+      - conditions:
+          - condition: trigger
+            id: person_arrived
+        sequence:
+          - service: input_boolean.turn_on
+            target:
+              entity_id: !input ring_to_open_active
+          - delay:
+              minutes: !input active_minutes
+          - service: input_boolean.turn_off
+            target:
+              entity_id: !input ring_to_open_active
+
+      # Optional special trigger: battery low while NOT at home => enable for N minutes
+      - conditions:
+          - condition: trigger
+            id: battery_low
+          - condition: template
+            value_template: "{{ special_enabled }}"
+          - condition: template
+            value_template: "{{ batt_configured }}"
+          - condition: not
+            conditions:
+              - condition: state
+                entity_id: !input authorised_person
+                state: "home"
+        sequence:
+          - service: input_boolean.turn_on
+            target:
+              entity_id: !input ring_to_open_active
+          - delay:
+              minutes: !input active_minutes
+          - service: input_boolean.turn_off
+            target:
+              entity_id: !input ring_to_open_active
+
+      # Unlock on Ding press when Ring-to-Open is active and person is home
+      - conditions:
+          - condition: trigger
+            id: ding_pressed
+          - condition: state
+            entity_id: !input authorised_person
+            state: "home"
+          - condition: state
+            entity_id: !input ring_to_open_active
+            state: "on"
+        sequence:
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ cooldown_seconds | int > 0 }}"
+                sequence:
+                  - delay:
+                      seconds: !input ding_cooldown_seconds
+            default: []
+          - service: lock.unlock
+            target:
+              entity_id: !input intercom_lock
+
+    default: []
