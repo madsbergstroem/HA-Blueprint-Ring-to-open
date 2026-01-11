@@ -12,12 +12,24 @@ Behaviour:
 
 ### Import into Home Assistant
 
-Use the raw GitHub URL:
+Use the Home Assistant import link:
 
-`https://raw.githubusercontent.com/<YOUR_GITHUB_USER>/<YOUR_REPO>/main/automation/ring_intercom/ring_to_open.yaml`
+https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2Fmadsbergstroem%2FHA-Blueprint-Ring-to-open%2Fmain%2Fautomation%2Fring_intercom%2Fring_to_open.yaml
+
+Or manually import with the raw GitHub URL:
+
+`https://raw.githubusercontent.com/madsbergstroem/HA-Blueprint-Ring-to-open/main/automation/ring_intercom/ring_to_open.yaml`
 
 Home Assistant:
 Settings → Automations & Scenes → Blueprints → Import Blueprint
+
+### Troubleshooting import errors
+
+If Home Assistant reports an error like:
+`mapping values are not allowed here in "<unicode string>" ... --tab-size-preference: 4;`
+then the YAML was likely copied with an extra CSS line from a web editor. Re-import using the **raw GitHub URL**
+above (or the Home Assistant import link), or open the YAML and delete any stray lines such as
+`--tab-size-preference: 4;` before importing.
 
 ### Required entities
 
