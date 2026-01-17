@@ -158,27 +158,34 @@ action:
             target:
               entity_id: !input ring_to_open_active
 
-      # Unlock on Ding press when Ring-to-Open is active and person is home
+      # Handle Ding press while Ring-to-Open is active
       - conditions:
           - condition: trigger
             id: ding_pressed
-          - condition: state
-            entity_id: !input authorised_person
-            state: "home"
           - condition: state
             entity_id: !input ring_to_open_active
             state: "on"
         sequence:
           - choose:
               - conditions:
-                  - condition: template
-                    value_template: "{{ cooldown_seconds | int > 0 }}"
+                  - condition: state
+                    entity_id: !input authorised_person
+                    state: "home"
                 sequence:
-                  - delay:
-                      seconds: !input ding_cooldown_seconds
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ cooldown_seconds | int > 0 }}"
+                        sequence:
+                          - delay:
+                              seconds: !input ding_cooldown_seconds
+                    default: []
+                  - service: lock.unlock
+                    target:
+                      entity_id: !input intercom_lock
             default: []
-          - service: lock.unlock
+          - service: input_boolean.turn_off
             target:
-              entity_id: !input intercom_lock
+              entity_id: !input ring_to_open_active
 
     default: []
