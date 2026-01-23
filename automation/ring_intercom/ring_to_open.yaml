@@ -45,13 +45,16 @@ blueprint:
           max: 180
           step: 1
           unit_of_measurement: min
-          
+
     auto_reset_on_ding:
       name: Auto-reset after first successful Ding
+      description: >
+        If enabled, Ring-to-Open is turned OFF immediately
+        after the door was unlocked via the Ding.
       default: false
       selector:
         boolean: {}
-        
+
     enable_emergency_mode:
       name: Enable emergency mode
       default: false
@@ -106,11 +109,9 @@ blueprint:
           step: 5
           unit_of_measurement: min
 
-
 mode: restart
 
 variables:
-  # map inputs to variables (Blueprint-safe)
   ding_entity: !input ding_sensor
   lock_entity: !input intercom_lock
   persons: !input authorised_persons
@@ -228,3 +229,71 @@ action:
           - service: input_boolean.turn_off
             target:
               entity_id: !input ring_to_open_active
+          - service: logbook.log
+            data:
+              name: Ring Intercom
+              message: "Ring-to-Open DISABLED (Emergency: batteries OK)"
+
+      # Emergency disable: person arrived
+      - conditions:
+          - condition: trigger
+            id: person_arrived
+          - condition: template
+            value_template: "{{ disable_on_arrival }}"
+        sequence:
+          - service: input_boolean.turn_off
+            target:
+              entity_id: !input ring_to_open_active
+          - service: logbook.log
+            data:
+              name: Ring Intercom
+              message: "Ring-to-Open DISABLED (Emergency: person arrived)"
+
+      # Emergency disable: timeout
+      - conditions:
+          - condition: trigger
+            id: emergency_battery_low
+          - condition: template
+            value_template: "{{ disable_on_timeout }}"
+        sequence:
+          - delay:
+              minutes: !input emergency_timeout_minutes
+          - service: input_boolean.turn_off
+            target:
+              entity_id: !input ring_to_open_active
+          - service: logbook.log
+            data:
+              name: Ring Intercom
+              message: "Ring-to-Open DISABLED (Emergency timeout)"
+
+      # Unlock on Ding
+      - conditions:
+          - condition: trigger
+            id: ding_pressed
+          - condition: template
+            value_template: "{{ any_person_home }}"
+          - condition: state
+            entity_id: !input ring_to_open_active
+            state: "on"
+        sequence:
+          - service: lock.unlock
+            target:
+              entity_id: !input intercom_lock
+          - service: logbook.log
+            data:
+              name: Ring Intercom
+              message: "Door UNLOCKED (Ding + Ring-to-Open active)"
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ auto_reset_on_ding }}"
+                sequence:
+                  - service: input_boolean.turn_off
+                    target:
+                      entity_id: !input ring_to_open_active
+                  - service: logbook.log
+                    data:
+                      name: Ring Intercom
+                      message: "Ring-to-Open DISABLED (Auto-reset)"
+
+    default: []
