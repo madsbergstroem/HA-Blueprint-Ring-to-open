@@ -1,51 +1,145 @@
-# Ring2Open Blueprints (Ring Intercom + Home Assistant)
+# Ring Intercom – Ring-to-Open (Gate-based, Emergency-aware)
 
-This repository contains Home Assistant Blueprints that implement a Nuki-like "Ring to Open" flow for a Ring Intercom setup.
+A Home Assistant blueprint implementing **Nuki-like Ring-to-Open behaviour**
+for Ring Intercoms using a **strict gate model**.
 
-## Blueprint: Ring-to-Open (helper-based)
+The door is unlocked **only** when a dedicated helper (`input_boolean`)
+explicitly allows it.
 
-Behaviour:
-1. On arrival (authorised person becomes `home`), enable Ring-to-Open (`input_boolean`) for a configured time.
-2. While Ring-to-Open is active, pressing the Ding (doorbell binary_sensor) unlocks the Intercom lock.
-3. After the configured time, Ring-to-Open is disabled again.
-4. Optional: a special trigger can enable Ring-to-Open (e.g. phone battery below a threshold while not at home).
+---
 
-### Import into Home Assistant
+## Core Concept
 
-Use the Home Assistant import link:
+**One gate. One decision. No side effects.**
 
-https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2Fmadsbergstroem%2FHA-Blueprint-Ring-to-open%2Fmain%2Fautomation%2Fring_intercom%2Fring_to_open.yaml
+> The door may only be unlocked when  
+> `ring_to_open = ON`.
 
-Or manually import with the raw GitHub URL:
+All triggers only **enable or disable the gate**.  
+The Ding (doorbell) never opens the door by itself.
 
-`https://raw.githubusercontent.com/madsbergstroem/HA-Blueprint-Ring-to-open/main/automation/ring_intercom/ring_to_open.yaml`
+---
 
-Home Assistant:
-Settings → Automations & Scenes → Blueprints → Import Blueprint
+## Required Helper
 
-### Troubleshooting import errors
+You must create the following helper manually:
 
-If Home Assistant reports an error like:
-`mapping values are not allowed here in "<unicode string>" ... --tab-size-preference: 4;`
-then the YAML was likely copied with an extra CSS line from a web editor. Re-import using the **raw GitHub URL**
-above (or the Home Assistant import link), or open the YAML and delete any stray lines such as
-`--tab-size-preference: 4;` before importing.
+- `input_boolean`
+  - Example name: `input_boolean.ring_to_open`
+  - Purpose: **single gatekeeper for unlocking**
 
-### Required entities
+---
 
-- Ding: `binary_sensor.*`
-- Intercom: `lock.*`
-- Authorised Person: `person.*`
-- Ring-to-Open Active helper: `input_boolean.*`
+## Supported Scenarios
 
-### Helper to create
+### 1. Arrival Window (Default)
 
-Settings → Devices & services → Helpers → Add Helper → Toggle
+**Purpose:** Convenience when coming home.
 
-Example entity id:
-- `input_boolean.ring_to_open`
+**Enable**
+- At least one authorised person arrives home
 
-## Notes
+**Disable**
+- After a configurable arrival timeout
 
-- This blueprint is intentionally helper-based so you can also toggle Ring-to-Open manually from the UI.
-- If your phone battery sensor is not numeric (e.g. returns "50 %"), create a template sensor that outputs a number 0–100.
+**Notes**
+- Time-based
+- Safe by design
+- Does not affect Emergency Mode
+
+---
+
+### 2. Emergency Mode (Battery Critical)
+
+**Purpose:** Ensure access when devices are critically low on battery.
+
+**Enable**
+- Emergency Mode enabled
+- ANY configured battery sensor below threshold
+- Nobody is home
+
+**Disable (configurable, multi-select)**
+- All batteries are OK again
+- An authorised person arrives home
+- Optional global emergency timeout
+
+**Notes**
+- State-based by default
+- Timeout is optional
+- Designed to avoid lock-outs
+
+---
+
+### 3. Manual Enable
+
+**Purpose:** Explicit user override.
+
+**Enable**
+- User manually switches `ring_to_open` ON
+
+**Disable**
+- Optional auto-reset after first Ding
+- Optional emergency timeout
+- Arrival logic if configured
+
+---
+
+### 4. Ding (Doorbell)
+
+**Unlock happens ONLY if**
+- Ding is pressed
+- `ring_to_open = ON`
+- At least one authorised person is home
+
+**Optional**
+- Auto-reset gate after first successful unlock
+
+---
+
+## Emergency Mode Configuration
+
+You can configure **multiple batteries** and **multiple disable conditions**.
+
+### Emergency Disable Options
+- Batteries recovered
+- Person arrives home
+- Global emergency timeout
+
+All options are **independent and combinable**.
+
+---
+
+## Debug Logging
+
+The blueprint logs all relevant decisions to the Home Assistant Logbook:
+
+- Why Ring-to-Open was enabled
+- Why it was disabled
+- Why the door was unlocked
+
+This makes every unlock **fully explainable and auditable**.
+
+---
+
+## Safety Guarantees
+
+- No unlock without explicit gate
+- No silent state changes
+- No emergency lock-out by default
+- No global timeout forcing unsafe behaviour
+
+---
+
+## Design Philosophy
+
+- Deterministic
+- Explainable
+- Emergency-safe
+- Minimal assumptions
+- Production-ready
+
+---
+
+## License
+
+MIT
