@@ -45,7 +45,13 @@ blueprint:
           max: 180
           step: 1
           unit_of_measurement: min
-
+          
+    auto_reset_on_ding:
+      name: Auto-reset after first successful Ding
+      default: false
+      selector:
+        boolean: {}
+        
     enable_emergency_mode:
       name: Enable emergency mode
       default: false
@@ -100,11 +106,6 @@ blueprint:
           step: 5
           unit_of_measurement: min
 
-    auto_reset_on_ding:
-      name: Auto-reset after first successful Ding
-      default: false
-      selector:
-        boolean: {}
 
 mode: restart
 
