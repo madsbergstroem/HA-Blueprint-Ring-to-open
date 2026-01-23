@@ -1,99 +1,164 @@
 blueprint:
-  name: "Ring Intercom: Ring-to-Open (Nuki-like, helper-based)"
+  name: "Ring Intercom: Ring-to-Open (Gate-based, Emergency-aware)"
   description: >
-    Nuki-like behaviour for a Ring Intercom:
-    1) Ring-to-Open is enabled via a helper (input_boolean).
-    2) When Ring-to-Open is ON and the Ding (gong/doorbell) is pressed while the authorised person is home,
-       the Intercom lock is unlocked.
-    3) Ring-to-Open is automatically disabled again after a configurable time.
-    4) Optionally, a special trigger (e.g. phone battery low while not at home) can enable Ring-to-Open.
+    Gate-based Ring-to-Open automation.
+
+    REQUIRED HELPERS:
+    - input_boolean (Ring-to-Open Active)
+      Acts as the single gatekeeper. Only when ON may the Ding unlock the door.
+
+    SCENARIOS:
+    - Arrival window (time-based)
+    - Emergency mode (state-based, configurable disable conditions)
+    - Optional auto-reset after first successful Ding
 
   domain: automation
-  source_url: "https://github.com/madsbergstroem/HA-Blueprint-Ring-to-open/blob/main/automation/ring_intercom/ring_to_open.yaml"
 
-  input:
-    ding_sensor:
-      name: Ding (binary_sensor)
-      selector:
-        entity:
-          domain: binary_sensor
+input:
+  ding_sensor:
+    name: Ding (binary_sensor)
+    selector:
+      entity:
+        domain: binary_sensor
 
-    intercom_lock:
-      name: Intercom (lock)
-      selector:
-        entity:
-          domain: lock
+  intercom_lock:
+    name: Intercom lock
+    selector:
+      entity:
+        domain: lock
 
-    authorised_person:
-      name: Authorised Person (person)
-      selector:
-        entity:
-          domain: person
+  authorised_persons:
+    name: Authorised persons (1..n)
+    selector:
+      entity:
+        domain: person
+        multiple: true
 
-    ring_to_open_active:
-      name: Ring-to-Open Active (input_boolean)
-      description: Helper that represents whether Ring-to-Open is currently active.
-      selector:
-        entity:
-          domain: input_boolean
+  ring_to_open_active:
+    name: Ring-to-Open Active (input_boolean)
+    description: Required helper acting as the gatekeeper.
+    selector:
+      entity:
+        domain: input_boolean
 
-    active_minutes:
-      name: Active time (minutes)
-      description: How long Ring-to-Open stays active after it is enabled.
-      default: 15
-      selector:
-        number:
-          min: 1
-          max: 180
-          step: 1
-          mode: slider
-          unit_of_measurement: min
+  arrival_active_minutes:
+    name: Arrival active time (minutes)
+    description: >
+      How long Ring-to-Open stays enabled after a person arrives home.
+      Only applies to the arrival scenario.
+    default: 15
+    selector:
+      number:
+        min: 1
+        max: 180
+        step: 1
+        unit_of_measurement: min
 
-    ding_cooldown_seconds:
-      name: Ding cooldown (seconds)
-      description: Debounce for the Ding trigger to reduce duplicate unlocks.
-      default: 2
-      selector:
-        number:
-          min: 0
-          max: 30
-          step: 1
-          mode: slider
-          unit_of_measurement: s
+  enable_emergency_mode:
+    name: Enable emergency mode
+    default: false
+    selector:
+      boolean: {}
 
-    enable_special_trigger:
-      name: Enable special trigger
-      default: false
-      selector:
-        boolean: {}
+  emergency_battery_sensors:
+    name: Emergency battery sensors (1..n)
+    description: >
+      One or more battery sensors (0–100).
+      Emergency mode triggers if ANY battery is below the threshold.
+    default: []
+    selector:
+      entity:
+        domain: sensor
+        multiple: true
 
-    phone_battery_sensor:
-      name: Phone battery sensor (optional)
-      description: "Numeric sensor (0–100). Example: sensor.michel_phone_battery_level"
-      default: ""
-      selector:
-        entity:
-          domain: sensor
+  emergency_battery_threshold:
+    name: Emergency battery threshold (%)
+    default: 5
+    selector:
+      number:
+        min: 1
+        max: 50
+        step: 1
+        unit_of_measurement: "%"
 
-    battery_threshold:
-      name: Battery threshold (%)
-      default: 5
-      selector:
-        number:
-          min: 1
-          max: 50
-          step: 1
-          mode: slider
-          unit_of_measurement: "%"
+  emergency_disable_conditions:
+    name: Emergency mode – disable conditions
+    description: >
+      Select one or more conditions that disable Emergency Mode.
+      Multiple selections are allowed.
+    default:
+      - battery_ok
+      - person_arrived
+    selector:
+      select:
+        multiple: true
+        options:
+          - label: "All emergency batteries are OK again"
+            value: battery_ok
+          - label: "An authorised person arrives home"
+            value: person_arrived
+          - label: "Global emergency timeout expires"
+            value: timeout
+
+  emergency_timeout_minutes:
+    name: Emergency timeout (minutes)
+    description: >
+      Only used if 'Global emergency timeout expires' is selected.
+    default: 120
+    selector:
+      number:
+        min: 5
+        max: 1440
+        step: 5
+        unit_of_measurement: min
+
+  auto_reset_on_ding:
+    name: Auto-reset after first successful Ding
+    default: false
+    selector:
+      boolean: {}
 
 mode: restart
 
 variables:
-  batt_entity: !input phone_battery_sensor
-  batt_threshold: !input battery_threshold
-  special_enabled: !input enable_special_trigger
-  cooldown_seconds: !input ding_cooldown_seconds
-  batt_configured: "{{ batt_entity is string and batt_entity | length > 0 }}"
+  emergency_enabled: !input enable_emergency_mode
+  batt_entities: !input emergency_battery_sensors
+  batt_threshold: !input emergency_battery_threshold
+  disable_opts: !input emergency_disable_conditions
+
+  any_person_home: >
+    {{
+      expand(!input authorised_persons)
+      | selectattr('state','eq','home')
+      | list
+      | count > 0
+    }}
+
+  batt_configured: "{{ batt_entities | length > 0 }}"
+
+  any_battery_low: >
+    {{
+      expand(batt_entities)
+      | selectattr('state','not in',['unknown','unavailable','none'])
+      | map(attribute='state')
+      | map('float', 101)
+      | select('lt', batt_threshold | float)
+      | list | count > 0
+    }}
+
+  all_batteries_ok: >
+    {{
+      expand(batt_entities)
+      | selectattr('state','not in',['unknown','unavailable','none'])
+      | map(attribute='state')
+      | map('float', 0)
+      | select('ge', batt_threshold | float)
+      | list | count == (expand(batt_entities) | count)
+    }}
+
+  disable_on_battery_ok: "{{ 'battery_ok' in disable_opts }}"
+  disable_on_arrival: "{{ 'person_arrived' in disable_opts }}"
+  disable_on_timeout: "{{ 'timeout' in disable_opts }}"
 
 trigger:
   - id: ding_pressed
@@ -103,25 +168,23 @@ trigger:
 
   - id: person_arrived
     platform: state
-    entity_id: !input authorised_person
+    entity_id: !input authorised_persons
     to: "home"
 
-  - id: battery_low
+  - id: emergency_battery_low
     platform: template
     value_template: >
-      {{
-        special_enabled
-        and batt_configured
-        and states(batt_entity) not in ['unknown', 'unavailable', 'none']
-        and (states(batt_entity) | float(101)) < (batt_threshold | float)
-      }}
+      {{ emergency_enabled and batt_configured and any_battery_low }}
 
-condition: []
+  - id: emergency_battery_ok
+    platform: template
+    value_template: >
+      {{ emergency_enabled and batt_configured and all_batteries_ok }}
 
 action:
   - choose:
 
-      # Auto-enable Ring-to-Open on arrival for N minutes
+      # Arrival window
       - conditions:
           - condition: trigger
             id: person_arrived
@@ -129,56 +192,110 @@ action:
           - service: input_boolean.turn_on
             target:
               entity_id: !input ring_to_open_active
+          - service: logbook.log
+            data:
+              name: Ring Intercom
+              message: "Ring-to-Open ENABLED (Arrival window)"
           - delay:
-              minutes: !input active_minutes
+              minutes: !input arrival_active_minutes
           - service: input_boolean.turn_off
             target:
               entity_id: !input ring_to_open_active
+          - service: logbook.log
+            data:
+              name: Ring Intercom
+              message: "Ring-to-Open DISABLED (Arrival timeout)"
 
-      # Optional special trigger: battery low while NOT at home => enable for N minutes
+      # Emergency enable
       - conditions:
           - condition: trigger
-            id: battery_low
+            id: emergency_battery_low
           - condition: template
-            value_template: "{{ special_enabled }}"
-          - condition: template
-            value_template: "{{ batt_configured }}"
-          - condition: not
-            conditions:
-              - condition: state
-                entity_id: !input authorised_person
-                state: "home"
+            value_template: "{{ not any_person_home }}"
         sequence:
           - service: input_boolean.turn_on
             target:
               entity_id: !input ring_to_open_active
-          - delay:
-              minutes: !input active_minutes
+          - service: logbook.log
+            data:
+              name: Ring Intercom
+              message: "Ring-to-Open ENABLED (Emergency mode: battery critical)"
+
+      # Emergency disable: battery ok
+      - conditions:
+          - condition: trigger
+            id: emergency_battery_ok
+          - condition: template
+            value_template: "{{ disable_on_battery_ok }}"
+        sequence:
           - service: input_boolean.turn_off
             target:
               entity_id: !input ring_to_open_active
+          - service: logbook.log
+            data:
+              name: Ring Intercom
+              message: "Ring-to-Open DISABLED (Emergency resolved: battery OK)"
 
-      # Unlock on Ding press when Ring-to-Open is active and person is home
+      # Emergency disable: person arrived
+      - conditions:
+          - condition: trigger
+            id: person_arrived
+          - condition: template
+            value_template: "{{ disable_on_arrival }}"
+        sequence:
+          - service: input_boolean.turn_off
+            target:
+              entity_id: !input ring_to_open_active
+          - service: logbook.log
+            data:
+              name: Ring Intercom
+              message: "Ring-to-Open DISABLED (Emergency resolved: person arrived)"
+
+      # Emergency disable: global timeout
+      - conditions:
+          - condition: trigger
+            id: emergency_battery_low
+          - condition: template
+            value_template: "{{ disable_on_timeout }}"
+        sequence:
+          - delay:
+              minutes: !input emergency_timeout_minutes
+          - service: input_boolean.turn_off
+            target:
+              entity_id: !input ring_to_open_active
+          - service: logbook.log
+            data:
+              name: Ring Intercom
+              message: "Ring-to-Open DISABLED (Emergency timeout)"
+
+      # Unlock on Ding
       - conditions:
           - condition: trigger
             id: ding_pressed
-          - condition: state
-            entity_id: !input authorised_person
-            state: "home"
+          - condition: template
+            value_template: "{{ any_person_home }}"
           - condition: state
             entity_id: !input ring_to_open_active
             state: "on"
         sequence:
-          - choose:
-              - conditions:
-                  - condition: template
-                    value_template: "{{ cooldown_seconds | int > 0 }}"
-                sequence:
-                  - delay:
-                      seconds: !input ding_cooldown_seconds
-            default: []
           - service: lock.unlock
             target:
               entity_id: !input intercom_lock
+          - service: logbook.log
+            data:
+              name: Ring Intercom
+              message: "Door UNLOCKED (Ding + Ring-to-Open active)"
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ auto_reset_on_ding }}"
+                sequence:
+                  - service: input_boolean.turn_off
+                    target:
+                      entity_id: !input ring_to_open_active
+                  - service: logbook.log
+                    data:
+                      name: Ring Intercom
+                      message: "Ring-to-Open DISABLED (Auto-reset after Ding)"
 
     default: []
