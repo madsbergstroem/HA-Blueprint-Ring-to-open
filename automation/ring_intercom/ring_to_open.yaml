@@ -1,122 +1,110 @@
 blueprint:
   name: "Ring Intercom: Ring-to-Open (Gate-based, Emergency-aware)"
   description: >
-    Gate-based Ring-to-Open automation.
-
-    REQUIRED HELPERS:
-    - input_boolean (Ring-to-Open Active)
-      Acts as the single gatekeeper. Only when ON may the Ding unlock the door.
-
-    SCENARIOS:
-    - Arrival window (time-based)
-    - Emergency mode (state-based, configurable disable conditions)
-    - Optional auto-reset after first successful Ding
+    Gate-based Ring-to-Open automation with Arrival Window and configurable Emergency Mode.
+    Door unlocks ONLY when the Ring-to-Open gate (input_boolean) is enabled.
 
   domain: automation
 
-input:
-  ding_sensor:
-    name: Ding (binary_sensor)
-    selector:
-      entity:
-        domain: binary_sensor
+  input:
+    ding_sensor:
+      name: Ding (binary_sensor)
+      selector:
+        entity:
+          domain: binary_sensor
 
-  intercom_lock:
-    name: Intercom lock
-    selector:
-      entity:
-        domain: lock
+    intercom_lock:
+      name: Intercom lock
+      selector:
+        entity:
+          domain: lock
 
-  authorised_persons:
-    name: Authorised persons (1..n)
-    selector:
-      entity:
-        domain: person
-        multiple: true
+    authorised_persons:
+      name: Authorised persons (1..n)
+      selector:
+        entity:
+          domain: person
+          multiple: true
 
-  ring_to_open_active:
-    name: Ring-to-Open Active (input_boolean)
-    description: Required helper acting as the gatekeeper.
-    selector:
-      entity:
-        domain: input_boolean
+    ring_to_open_active:
+      name: Ring-to-Open Active (input_boolean)
+      description: Required helper acting as the gatekeeper.
+      selector:
+        entity:
+          domain: input_boolean
 
-  arrival_active_minutes:
-    name: Arrival active time (minutes)
-    description: >
-      How long Ring-to-Open stays enabled after a person arrives home.
-      Only applies to the arrival scenario.
-    default: 15
-    selector:
-      number:
-        min: 1
-        max: 180
-        step: 1
-        unit_of_measurement: min
+    arrival_active_minutes:
+      name: Arrival active time (minutes)
+      description: >
+        How long Ring-to-Open stays enabled after a person arrives home.
+        Only applies to the arrival scenario.
+      default: 15
+      selector:
+        number:
+          min: 1
+          max: 180
+          step: 1
+          unit_of_measurement: min
 
-  enable_emergency_mode:
-    name: Enable emergency mode
-    default: false
-    selector:
-      boolean: {}
+    enable_emergency_mode:
+      name: Enable emergency mode
+      default: false
+      selector:
+        boolean: {}
 
-  emergency_battery_sensors:
-    name: Emergency battery sensors (1..n)
-    description: >
-      One or more battery sensors (0–100).
-      Emergency mode triggers if ANY battery is below the threshold.
-    default: []
-    selector:
-      entity:
-        domain: sensor
-        multiple: true
+    emergency_battery_sensors:
+      name: Emergency battery sensors (1..n)
+      description: >
+        Emergency mode triggers if ANY sensor is below the threshold.
+      default: []
+      selector:
+        entity:
+          domain: sensor
+          multiple: true
 
-  emergency_battery_threshold:
-    name: Emergency battery threshold (%)
-    default: 5
-    selector:
-      number:
-        min: 1
-        max: 50
-        step: 1
-        unit_of_measurement: "%"
+    emergency_battery_threshold:
+      name: Emergency battery threshold (%)
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 50
+          step: 1
+          unit_of_measurement: "%"
 
-  emergency_disable_conditions:
-    name: Emergency mode – disable conditions
-    description: >
-      Select one or more conditions that disable Emergency Mode.
-      Multiple selections are allowed.
-    default:
-      - battery_ok
-      - person_arrived
-    selector:
-      select:
-        multiple: true
-        options:
-          - label: "All emergency batteries are OK again"
-            value: battery_ok
-          - label: "An authorised person arrives home"
-            value: person_arrived
-          - label: "Global emergency timeout expires"
-            value: timeout
+    emergency_disable_conditions:
+      name: Emergency mode – disable conditions
+      description: Multiple selections allowed.
+      default:
+        - battery_ok
+        - person_arrived
+      selector:
+        select:
+          multiple: true
+          options:
+            - label: "All emergency batteries are OK again"
+              value: battery_ok
+            - label: "An authorised person arrives home"
+              value: person_arrived
+            - label: "Global emergency timeout expires"
+              value: timeout
 
-  emergency_timeout_minutes:
-    name: Emergency timeout (minutes)
-    description: >
-      Only used if 'Global emergency timeout expires' is selected.
-    default: 120
-    selector:
-      number:
-        min: 5
-        max: 1440
-        step: 5
-        unit_of_measurement: min
+    emergency_timeout_minutes:
+      name: Emergency timeout (minutes)
+      description: Only used if timeout is selected above.
+      default: 120
+      selector:
+        number:
+          min: 5
+          max: 1440
+          step: 5
+          unit_of_measurement: min
 
-  auto_reset_on_ding:
-    name: Auto-reset after first successful Ding
-    default: false
-    selector:
-      boolean: {}
+    auto_reset_on_ding:
+      name: Auto-reset after first successful Ding
+      default: false
+      selector:
+        boolean: {}
 
 mode: restart
 
@@ -130,8 +118,7 @@ variables:
     {{
       expand(!input authorised_persons)
       | selectattr('state','eq','home')
-      | list
-      | count > 0
+      | list | count > 0
     }}
 
   batt_configured: "{{ batt_entities | length > 0 }}"
@@ -219,7 +206,7 @@ action:
           - service: logbook.log
             data:
               name: Ring Intercom
-              message: "Ring-to-Open ENABLED (Emergency mode: battery critical)"
+              message: "Ring-to-Open ENABLED (Emergency mode)"
 
       # Emergency disable: battery ok
       - conditions:
@@ -234,7 +221,7 @@ action:
           - service: logbook.log
             data:
               name: Ring Intercom
-              message: "Ring-to-Open DISABLED (Emergency resolved: battery OK)"
+              message: "Ring-to-Open DISABLED (Emergency: batteries OK)"
 
       # Emergency disable: person arrived
       - conditions:
@@ -249,9 +236,9 @@ action:
           - service: logbook.log
             data:
               name: Ring Intercom
-              message: "Ring-to-Open DISABLED (Emergency resolved: person arrived)"
+              message: "Ring-to-Open DISABLED (Emergency: person arrived)"
 
-      # Emergency disable: global timeout
+      # Emergency disable: timeout
       - conditions:
           - condition: trigger
             id: emergency_battery_low
@@ -296,6 +283,6 @@ action:
                   - service: logbook.log
                     data:
                       name: Ring Intercom
-                      message: "Ring-to-Open DISABLED (Auto-reset after Ding)"
+                      message: "Ring-to-Open DISABLED (Auto-reset)"
 
     default: []
