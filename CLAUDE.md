@@ -1,3 +1,5 @@
+@AGENTS.md
+
 # Agent Instructions
 
 ## Iron Law: Arbeit landen, nicht nur berichten
